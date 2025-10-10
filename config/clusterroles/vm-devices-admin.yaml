@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubevirt.io:vm-devices-admin
+  labels:
+    app.kubernetes.io/managed-by: kubevirt-rbac-webhook
+    rbac.kubevirt.io/aggregate-to-vm-full-admin: "true"
+rules:
+  - apiGroups:
+      - kubevirt.io
+    resources:
+      - virtualmachines
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  - apiGroups:
+      - kubevirt.io
+    resources:
+      - virtualmachines/devices-admin
+    verbs:
+      - update

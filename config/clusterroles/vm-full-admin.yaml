@@ -1,0 +1,44 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubevirt.io:vm-full-admin
+  labels:
+    app.kubernetes.io/managed-by: kubevirt-rbac-webhook
+    # Aggregate to Kubernetes built-in admin and edit roles
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+# This role aggregates all VM admin permissions via Kubernetes role aggregation
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        rbac.kubevirt.io/aggregate-to-vm-full-admin: "true"
+rules: [] # Rules are automatically filled by the aggregation controller
+---
+# Additional subresource permission for full-admin checks
+# This provides the virtualmachines/full-admin subresource that the webhook checks.
+# When a user has this permission, the webhook allows unrestricted changes to ALL
+# VirtualMachine spec and metadata fields, not just those covered by the granular roles.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubevirt.io:vm-full-admin-subresource
+  labels:
+    app.kubernetes.io/managed-by: kubevirt-rbac-webhook
+    rbac.kubevirt.io/aggregate-to-vm-full-admin: "true"
+rules:
+  - apiGroups:
+      - kubevirt.io
+    resources:
+      - virtualmachines
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+  - apiGroups:
+      - kubevirt.io
+    resources:
+      - virtualmachines/full-admin
+    verbs:
+      - update

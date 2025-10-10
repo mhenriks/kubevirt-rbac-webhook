@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - vm-full-admin.yaml
+  - vm-storage-admin.yaml
+  - vm-cdrom-user.yaml
+  - vm-network-admin.yaml
+  - vm-compute-admin.yaml
+  - vm-devices-admin.yaml
+  - vm-lifecycle-admin.yaml

@@ -1,0 +1,25 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: kubevirt-rbac-validating-webhook
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: webhook-service
+        namespace: system
+        path: /validate-kubevirt-io-v1-virtualmachine
+    failurePolicy: Fail
+    name: virtualmachine.validate.rbac.kubevirt.io
+    rules:
+      - apiGroups:
+          - kubevirt.io
+        apiVersions:
+          - v1
+        operations:
+          - UPDATE
+        resources:
+          - virtualmachines
+    sideEffects: None
