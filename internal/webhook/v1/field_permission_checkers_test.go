@@ -846,8 +846,8 @@ var _ = Describe("Field Permission Checkers", func() {
 				checker.Neutralize(oldVM, newVM)
 
 				// CD-ROM volumes should be removed
-				Expect(oldVM.Spec.Template.Spec.Volumes).To(HaveLen(0))
-				Expect(newVM.Spec.Template.Spec.Volumes).To(HaveLen(0))
+				Expect(oldVM.Spec.Template.Spec.Volumes).To(BeEmpty())
+				Expect(newVM.Spec.Template.Spec.Volumes).To(BeEmpty())
 
 				// CD-ROM disks should still be present (NOT neutralized)
 				Expect(oldVM.Spec.Template.Spec.Domain.Devices.Disks).To(HaveLen(1))

@@ -28,6 +28,17 @@ import (
 // Test namespace for webhook RBAC tests
 const testNamespace = "default"
 
+// Common JSON patches used across multiple tests
+const (
+	patchAddVolume = `[{"op":"add","path":"/spec/template/spec/volumes/-",` +
+		`"value":{"name":"test-vol","emptyDisk":{"capacity":"1Gi"}}}]`
+	patchAddCPU              = `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
+	patchAddNetworkInterface = `[{"op":"add","path":"/spec/template/spec/domain/devices/interfaces",` +
+		`"value":[{"name":"test-iface","masquerade":{}}]},` +
+		`{"op":"add","path":"/spec/template/spec/networks","value":[{"name":"test-iface","pod":{}}]}]`
+	patchSetRunning = `[{"op":"add","path":"/spec/running","value":true}]`
+)
+
 var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 	Context("Full-Admin Permission", func() {
@@ -61,17 +72,15 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should allow modifying all VM fields (storage, CPU, memory, network)", func() {
 			By("attempting to add a volume as full-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-vol","emptyDisk":{"capacity":"1Gi"}}}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchAddVolume, testSA, testNamespace)).
 				To(Succeed(), "full-admin should be able to add volumes")
 
 			By("attempting to change CPU as full-admin user")
-			patch = `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchAddCPU, testSA, testNamespace)).
 				To(Succeed(), "full-admin should be able to change CPU")
 
 			By("attempting to change memory as full-admin user")
-			patch = `[{"op":"replace","path":"/spec/template/spec/domain/resources/requests/memory","value":"256Mi"}]`
+			patch := `[{"op":"replace","path":"/spec/template/spec/domain/resources/requests/memory","value":"256Mi"}]`
 			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
 				To(Succeed(), "full-admin should be able to change memory")
 		})
@@ -115,7 +124,8 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should allow adding volumes", func() {
 			By("attempting to add a volume as storage-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-vol-storage","emptyDisk":{"capacity":"1Gi"}}}]`
+			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-",` +
+				`"value":{"name":"test-vol-storage","emptyDisk":{"capacity":"1Gi"}}}]`
 			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
 				To(Succeed(), "storage-admin should be able to add volumes")
 		})
@@ -123,6 +133,7 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 		It("should allow modifying disks", func() {
 			By("attempting to add a disk and volume as storage-admin user")
 			// Add both volume and disk together (disk needs a matching volume)
+			// nolint:lll // Long JSON patch can't be easily split
 			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-disk-vol","emptyDisk":{"capacity":"1Gi"}}},{"op":"add","path":"/spec/template/spec/domain/devices/disks/-","value":{"name":"test-disk-vol","disk":{"bus":"virtio"}}}]`
 			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
 				To(Succeed(), "storage-admin should be able to add disks and volumes")
@@ -130,8 +141,7 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should deny CPU changes", func() {
 			By("attempting to change CPU as storage-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddCPU, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "storage-admin should NOT be able to change CPU")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
@@ -146,17 +156,14 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should deny network changes", func() {
 			By("attempting to add a network interface as storage-admin user")
-			// Add both interface and network together (interface needs matching network)
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/devices/interfaces","value":[{"name":"test-iface","masquerade":{}}]},{"op":"add","path":"/spec/template/spec/networks","value":[{"name":"test-iface","pod":{}}]}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddNetworkInterface, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "storage-admin should NOT be able to add network interfaces")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
 
 		It("should deny lifecycle changes", func() {
 			By("attempting to change running state as storage-admin user")
-			patch := `[{"op":"add","path":"/spec/running","value":true}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchSetRunning, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "storage-admin should NOT be able to change running state")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
@@ -211,6 +218,7 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should deny adding new CD-ROM disks", func() {
 			By("attempting to add a CD-ROM disk as cdrom-user")
+			// nolint:lll // Long JSON patch can't be easily split
 			patch := `[{"op":"add","path":"/spec/template/spec/domain/devices/disks/-","value":{"name":"new-cdrom","cdrom":{"bus":"sata"}}}]`
 			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "cdrom-user should NOT be able to add CD-ROM disks")
@@ -218,16 +226,14 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should deny adding non-CD-ROM storage", func() {
 			By("attempting to add a regular volume as cdrom-user")
-			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-vol","emptyDisk":{"capacity":"1Gi"}}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddVolume, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "cdrom-user should NOT be able to add regular volumes")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
 
 		It("should deny CPU changes", func() {
 			By("attempting to change CPU as cdrom-user")
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddCPU, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "cdrom-user should NOT be able to change CPU")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
@@ -264,28 +270,26 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should allow adding network interfaces", func() {
 			By("attempting to add a network interface as network-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/devices/interfaces","value":[{"name":"test-iface","masquerade":{}}]},{"op":"add","path":"/spec/template/spec/networks","value":[{"name":"test-iface","pod":{}}]}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchAddNetworkInterface, testSA, testNamespace)).
 				To(Succeed(), "network-admin should be able to add network interfaces")
 		})
 
 		It("should deny storage changes", func() {
 			By("attempting to add a volume as network-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-vol","emptyDisk":{"capacity":"1Gi"}}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddVolume, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "network-admin should NOT be able to add volumes")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
 
 		It("should deny CPU changes", func() {
 			By("attempting to change CPU as network-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddCPU, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "network-admin should NOT be able to change CPU")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
 	})
 
+	// nolint:dupl // Similar structure to other permission tests but with different permissions
 	Context("Compute-Admin Permission", func() {
 		var (
 			testSA      string
@@ -317,8 +321,7 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should allow changing CPU configuration", func() {
 			By("attempting to change CPU as compute-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchAddCPU, testSA, testNamespace)).
 				To(Succeed(), "compute-admin should be able to change CPU")
 		})
 
@@ -331,22 +334,20 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should deny storage changes", func() {
 			By("attempting to add a volume as compute-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-vol","emptyDisk":{"capacity":"1Gi"}}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddVolume, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "compute-admin should NOT be able to add volumes")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
 
 		It("should deny network changes", func() {
 			By("attempting to add a network interface as compute-admin user")
-			// Add both interface and network together (interface needs matching network)
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/devices/interfaces","value":[{"name":"test-iface","masquerade":{}}]},{"op":"add","path":"/spec/template/spec/networks","value":[{"name":"test-iface","pod":{}}]}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddNetworkInterface, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "compute-admin should NOT be able to add network interfaces")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
 	})
 
+	// nolint:dupl // Similar structure to other permission tests but with different permissions
 	Context("Lifecycle-Admin Permission", func() {
 		var (
 			testSA      string
@@ -378,8 +379,7 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should allow changing running state", func() {
 			By("attempting to change running state as lifecycle-admin user")
-			patch := `[{"op":"add","path":"/spec/running","value":true}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchSetRunning, testSA, testNamespace)).
 				To(Succeed(), "lifecycle-admin should be able to change running state")
 		})
 
@@ -393,16 +393,14 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should deny storage changes", func() {
 			By("attempting to add a volume as lifecycle-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-vol","emptyDisk":{"capacity":"1Gi"}}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddVolume, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "lifecycle-admin should NOT be able to add volumes")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
 
 		It("should deny CPU changes", func() {
 			By("attempting to change CPU as lifecycle-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddCPU, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "lifecycle-admin should NOT be able to change CPU")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
@@ -439,6 +437,7 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should allow adding GPUs", func() {
 			By("attempting to add a GPU as devices-admin user")
+			// nolint:lll // Long JSON patch can't be easily split
 			patch := `[{"op":"add","path":"/spec/template/spec/domain/devices/gpus","value":[{"name":"gpu1","deviceName":"nvidia.com/GPU"}]}]`
 			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
 				To(Succeed(), "devices-admin should be able to add GPUs")
@@ -447,6 +446,7 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 		It("should allow adding host devices", func() {
 			Skip("Host devices require HostDevices feature gate to be enabled in KubeVirt")
 			By("attempting to add a host device as devices-admin user")
+			// nolint:lll // Long JSON patch can't be easily split
 			patch := `[{"op":"add","path":"/spec/template/spec/domain/devices/hostDevices","value":[{"name":"hostdev1","deviceName":"pci.com/device"}]}]`
 			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
 				To(Succeed(), "devices-admin should be able to add host devices")
@@ -454,16 +454,14 @@ var _ = Describe("Webhook RBAC Validation", Ordered, func() {
 
 		It("should deny storage changes", func() {
 			By("attempting to add a volume as devices-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-vol","emptyDisk":{"capacity":"1Gi"}}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddVolume, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "devices-admin should NOT be able to add volumes")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
 
 		It("should deny CPU changes", func() {
 			By("attempting to change CPU as devices-admin user")
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddCPU, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "devices-admin should NOT be able to change CPU")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})
@@ -528,18 +526,15 @@ subjects:
 
 		It("should allow all changes (backwards compatible)", func() {
 			By("attempting to add a volume with standard update permission")
-			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-vol","emptyDisk":{"capacity":"1Gi"}}}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchAddVolume, testSA, testNamespace)).
 				To(Succeed(), "standard update should allow volume changes (backwards compatible)")
 
 			By("attempting to change CPU with standard update permission")
-			patch = `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchAddCPU, testSA, testNamespace)).
 				To(Succeed(), "standard update should allow CPU changes (backwards compatible)")
 
 			By("attempting to change running state with standard update permission")
-			patch = `[{"op":"add","path":"/spec/running","value":true}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchSetRunning, testSA, testNamespace)).
 				To(Succeed(), "standard update should allow lifecycle changes (backwards compatible)")
 		})
 	})
@@ -580,20 +575,17 @@ subjects:
 
 		It("should allow storage and network changes", func() {
 			By("attempting to add a volume with combined permissions")
-			patch := `[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"test-vol","emptyDisk":{"capacity":"1Gi"}}}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchAddVolume, testSA, testNamespace)).
 				To(Succeed(), "user with storage+network should be able to add volumes")
 
 			By("attempting to add a network interface with combined permissions")
-			patch = `[{"op":"add","path":"/spec/template/spec/domain/devices/interfaces","value":[{"name":"test-iface","masquerade":{}}]},{"op":"add","path":"/spec/template/spec/networks","value":[{"name":"test-iface","pod":{}}]}]`
-			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)).
+			Expect(utils.PatchResourceAs("vm", testVM, testNamespace, patchAddNetworkInterface, testSA, testNamespace)).
 				To(Succeed(), "user with storage+network should be able to add network interfaces")
 		})
 
 		It("should deny CPU changes", func() {
 			By("attempting to change CPU with combined storage+network permissions")
-			patch := `[{"op":"add","path":"/spec/template/spec/domain/cpu","value":{"cores":4}}]`
-			err := utils.PatchResourceAs("vm", testVM, testNamespace, patch, testSA, testNamespace)
+			err := utils.PatchResourceAs("vm", testVM, testNamespace, patchAddCPU, testSA, testNamespace)
 			Expect(err).To(HaveOccurred(), "user with storage+network should NOT be able to change CPU")
 			Expect(err.Error()).To(ContainSubstring("does not have permission"), "error should indicate lack of permission")
 		})

@@ -216,10 +216,8 @@ func (v *VirtualMachineCustomValidator) ValidateUpdate(ctx context.Context, oldO
 			if hasPermission {
 				// User has permission for this field category, neutralize it
 				checker.Neutralize(oldCopy, newCopy)
-			} else {
-				// User lacks this specific permission.
-				// We'll only deny if ALL checkers run and changes remain
 			}
+			// If user lacks permission, we'll deny later if changes remain after all checkers run
 		}
 	}
 
@@ -269,7 +267,9 @@ func (v *VirtualMachineCustomValidator) normalizeSystemMetadata(oldMeta, newMeta
 	oldMeta.ManagedFields = nil
 	newMeta.ManagedFields = nil
 
+	// nolint:staticcheck // SelfLink is deprecated but we normalize it for compatibility
 	oldMeta.SelfLink = ""
+	// nolint:staticcheck // SelfLink is deprecated but we normalize it for compatibility
 	newMeta.SelfLink = ""
 
 	// UID and timestamps are immutable, but normalize them anyway for consistency
