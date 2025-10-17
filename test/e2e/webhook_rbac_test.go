@@ -26,7 +26,7 @@ import (
 )
 
 // Test namespace for webhook RBAC tests
-const testNamespace = "default"
+const testNamespace = "webhook-rbac-test"
 
 // Common JSON patches used across multiple tests
 const (

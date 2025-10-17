@@ -90,6 +90,13 @@ var _ = BeforeSuite(func() {
 		if !utils.IsDeploymentAvailable("controller-manager", namespace) {
 			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: Webhook not deployed. Run 'make cluster-sync' first\n")
 		}
+
+		// Create dedicated test namespace for RBAC tests
+		By("creating test namespace for webhook RBAC tests")
+		testNs := "webhook-rbac-test"
+		if !utils.NamespaceExists(testNs) {
+			Expect(utils.CreateNamespace(testNs)).To(Succeed(), "Failed to create test namespace")
+		}
 	} else {
 		// Original kind-based workflow
 		By("building the manager(Operator) image")
@@ -119,10 +126,16 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	// Teardown CertManager after the suite if not skipped and if it was not already installed
-	// Skip teardown for kubevirtci as the cluster persists
-	if !useKubevirtci && !skipCertManagerInstall && !isCertManagerAlreadyInstalled {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Uninstalling CertManager...\n")
-		utils.UninstallCertManager()
+	if useKubevirtci {
+		// Clean up test namespace
+		By("cleaning up test namespace")
+		testNs := "webhook-rbac-test"
+		utils.DeleteNamespace(testNs)
+	} else {
+		// Teardown CertManager after the suite if not skipped and if it was not already installed
+		if !skipCertManagerInstall && !isCertManagerAlreadyInstalled {
+			_, _ = fmt.Fprintf(GinkgoWriter, "Uninstalling CertManager...\n")
+			utils.UninstallCertManager()
+		}
 	}
 })

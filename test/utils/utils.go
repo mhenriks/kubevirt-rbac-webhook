@@ -484,6 +484,28 @@ func IsDeploymentAvailable(name, namespace string) bool {
 	return err == nil
 }
 
+// CreateNamespace creates a namespace
+func CreateNamespace(name string) error {
+	cmd := newKubectlCommand("create", "namespace", name)
+	_, err := Run(cmd)
+	return err
+}
+
+// DeleteNamespace deletes a namespace
+func DeleteNamespace(name string) {
+	cmd := newKubectlCommand("delete", "namespace", name, "--ignore-not-found", "--timeout=60s")
+	if _, err := Run(cmd); err != nil {
+		warnError(err)
+	}
+}
+
+// NamespaceExists checks if a namespace exists
+func NamespaceExists(name string) bool {
+	cmd := newKubectlCommand("get", "namespace", name)
+	_, err := Run(cmd)
+	return err == nil
+}
+
 // CreateVMWithCDRom creates a test VM with a CD-ROM drive
 func CreateVMWithCDRom(name, namespace string, hotpluggable bool) error {
 	hotplugStr := ""
