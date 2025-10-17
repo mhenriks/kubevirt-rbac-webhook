@@ -189,6 +189,28 @@ kubectl create rolebinding user-vm-storage-admin \
 
 ## Development
 
+### Quick Start with kubevirtci
+
+For development and testing with real KubeVirt VirtualMachines, use kubevirtci:
+
+```bash
+# Start kubevirtci cluster with KubeVirt pre-installed
+make cluster-up
+
+# Access the cluster
+_kubevirtci/cluster-up/kubectl.sh get nodes
+_kubevirtci/cluster-up/kubectl.sh get vms -A
+
+# Build, deploy webhook, and run e2e tests
+make cluster-sync
+make cluster-functest
+
+# Stop cluster
+make cluster-down
+```
+
+See [QUICKSTART_KUBEVIRTCI.md](QUICKSTART_KUBEVIRTCI.md) for quick start or [KUBEVIRTCI.md](KUBEVIRTCI.md) for detailed guide.
+
 ### Building
 
 ```bash
@@ -204,7 +226,14 @@ make run        # Run webhook locally (requires kubeconfig)
 ### Testing
 
 ```bash
+# Unit tests
 make test
+
+# E2E tests with kubevirtci (recommended)
+make cluster-up cluster-sync cluster-functest
+
+# E2E tests with kind (legacy)
+make test-e2e
 ```
 
 ### Building Docker image

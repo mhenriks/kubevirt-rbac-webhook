@@ -34,10 +34,10 @@ import (
 const namespace = "kubevirt-rbac-webhook-system"
 
 // serviceAccountName created for the project
-const serviceAccountName = "kubevirt-rbac-webhook-controller-manager"
+const serviceAccountName = "controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "kubevirt-rbac-webhook-controller-manager-metrics-service"
+const metricsServiceName = "controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
 const metricsRoleBindingName = "kubevirt-rbac-webhook-metrics-binding"
@@ -48,6 +48,11 @@ var _ = Describe("Manager", Ordered, func() {
 	// Before running the tests, set up the environment by creating the namespace,
 	// enforce the restricted security policy to the namespace, and deploying the webhook.
 	BeforeAll(func() {
+		// Skip deployment in kubevirtci mode (webhook is already deployed via cluster-sync)
+		if useKubevirtci {
+			Skip("Manager deployment tests are skipped in kubevirtci mode (webhook already deployed)")
+		}
+
 		By("creating manager namespace")
 		cmd := exec.Command("kubectl", "create", "ns", namespace)
 		_, err := utils.Run(cmd)
@@ -68,6 +73,11 @@ var _ = Describe("Manager", Ordered, func() {
 	// After all tests have been executed, clean up by undeploying the webhook
 	// and deleting the namespace.
 	AfterAll(func() {
+		// Skip cleanup in kubevirtci mode (webhook should persist across test runs)
+		if useKubevirtci {
+			return
+		}
+
 		By("cleaning up the curl pod for metrics")
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
 		_, _ = utils.Run(cmd)
@@ -243,7 +253,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("getting the metrics by checking curl-metrics logs")
 			metricsOutput := getMetricsOutput()
 			Expect(metricsOutput).To(ContainSubstring(
-				"controller_runtime_reconcile_total",
+				"controller_runtime_webhook_requests_total",
 			))
 		})
 

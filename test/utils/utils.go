@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2" // nolint:revive,staticcheck
@@ -38,6 +39,23 @@ const (
 
 func warnError(err error) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "warning: %v\n", err)
+}
+
+// getKubectl returns the kubectl command to use.
+// In kubevirtci mode, it returns the path to kubectl.sh wrapper.
+// Otherwise, it returns standard "kubectl".
+func getKubectl() string {
+	if os.Getenv("USE_KUBEVIRTCI") == "true" {
+		// Use kubevirtci's kubectl.sh wrapper
+		dir, _ := GetProjectDir()
+		return filepath.Join(dir, "_kubevirtci", "cluster-up", "kubectl.sh")
+	}
+	return "kubectl"
+}
+
+// newKubectlCommand creates a kubectl exec.Command with the appropriate binary.
+func newKubectlCommand(args ...string) *exec.Cmd {
+	return exec.Command(getKubectl(), args...)
 }
 
 // Run executes the provided command within this context
@@ -63,7 +81,7 @@ func Run(cmd *exec.Cmd) (string, error) {
 // InstallPrometheusOperator installs the prometheus Operator to be used to export the enabled metrics.
 func InstallPrometheusOperator() error {
 	url := fmt.Sprintf(prometheusOperatorURL, prometheusOperatorVersion)
-	cmd := exec.Command("kubectl", "create", "-f", url)
+	cmd := newKubectlCommand("create", "-f", url)
 	_, err := Run(cmd)
 	return err
 }
@@ -71,7 +89,7 @@ func InstallPrometheusOperator() error {
 // UninstallPrometheusOperator uninstalls the prometheus
 func UninstallPrometheusOperator() {
 	url := fmt.Sprintf(prometheusOperatorURL, prometheusOperatorVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
+	cmd := newKubectlCommand("delete", "-f", url)
 	if _, err := Run(cmd); err != nil {
 		warnError(err)
 	}
@@ -87,7 +105,7 @@ func IsPrometheusCRDsInstalled() bool {
 		"prometheusagents.monitoring.coreos.com",
 	}
 
-	cmd := exec.Command("kubectl", "get", "crds", "-o", "custom-columns=NAME:.metadata.name")
+	cmd := newKubectlCommand("get", "crds", "-o", "custom-columns=NAME:.metadata.name")
 	output, err := Run(cmd)
 	if err != nil {
 		return false
@@ -107,7 +125,7 @@ func IsPrometheusCRDsInstalled() bool {
 // UninstallCertManager uninstalls the cert manager
 func UninstallCertManager() {
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
+	cmd := newKubectlCommand("delete", "-f", url)
 	if _, err := Run(cmd); err != nil {
 		warnError(err)
 	}
@@ -118,7 +136,7 @@ func UninstallCertManager() {
 		"cert-manager-controller",
 	}
 	for _, lease := range kubeSystemLeases {
-		cmd = exec.Command("kubectl", "delete", "lease", lease,
+		cmd = newKubectlCommand("delete", "lease", lease,
 			"-n", "kube-system", "--ignore-not-found", "--force", "--grace-period=0")
 		if _, err := Run(cmd); err != nil {
 			warnError(err)
@@ -129,20 +147,41 @@ func UninstallCertManager() {
 // InstallCertManager installs the cert manager bundle.
 func InstallCertManager() error {
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "apply", "-f", url)
+	cmd := newKubectlCommand("apply", "-f", url)
 	if _, err := Run(cmd); err != nil {
 		return err
 	}
 	// Wait for cert-manager-webhook to be ready, which can take time if cert-manager
 	// was re-installed after uninstalling on a cluster.
-	cmd = exec.Command("kubectl", "wait", "deployment.apps/cert-manager-webhook",
+	cmd = newKubectlCommand("wait", "deployment.apps/cert-manager-webhook",
 		"--for", "condition=Available",
 		"--namespace", "cert-manager",
 		"--timeout", "5m",
 	)
 
-	_, err := Run(cmd)
-	return err
+	if _, err := Run(cmd); err != nil {
+		return err
+	}
+
+	// Wait for the webhook's TLS secret to be created and the webhook to be fully functional.
+	// This is necessary because the deployment being "Available" doesn't mean the webhook
+	// certificates are trusted yet.
+	_, _ = fmt.Fprintf(GinkgoWriter, "Waiting for cert-manager webhook to be fully functional...\n")
+	cmd = newKubectlCommand("wait", "--for=jsonpath={.webhooks[0].clientConfig.caBundle}",
+		"validatingwebhookconfigurations.admissionregistration.k8s.io",
+		"cert-manager-webhook",
+		"--timeout", "2m",
+	)
+	// If the above wait fails, fall back to a simple sleep
+	if _, err := Run(cmd); err != nil {
+		_, _ = fmt.Fprintf(GinkgoWriter, "Falling back to sleep to wait for webhook readiness...\n")
+		cmd = exec.Command("sleep", "30")
+		if _, err := Run(cmd); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // IsCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed
@@ -159,7 +198,7 @@ func IsCertManagerCRDsInstalled() bool {
 	}
 
 	// Execute the kubectl command to get all CRDs
-	cmd := exec.Command("kubectl", "get", "crds")
+	cmd := newKubectlCommand("get", "crds")
 	output, err := Run(cmd)
 	if err != nil {
 		return false
@@ -264,4 +303,230 @@ func UncommentCode(filename, target, prefix string) error {
 	}
 
 	return nil
+}
+
+// CreateServiceAccount creates a ServiceAccount in the specified namespace
+func CreateServiceAccount(name, namespace string) error {
+	cmd := newKubectlCommand("create", "serviceaccount", name, "-n", namespace)
+	_, err := Run(cmd)
+	return err
+}
+
+// DeleteServiceAccount deletes a ServiceAccount from the specified namespace
+func DeleteServiceAccount(name, namespace string) {
+	cmd := newKubectlCommand("delete", "serviceaccount", name, "-n", namespace, "--ignore-not-found")
+	if _, err := Run(cmd); err != nil {
+		warnError(err)
+	}
+}
+
+// CreateRoleBinding creates a RoleBinding in the specified namespace
+func CreateRoleBinding(name, namespace, clusterRole, serviceAccount string) error {
+	cmd := newKubectlCommand("create", "rolebinding", name,
+		"--clusterrole="+clusterRole,
+		"--serviceaccount="+namespace+":"+serviceAccount,
+		"-n", namespace)
+	_, err := Run(cmd)
+	return err
+}
+
+// DeleteRoleBinding deletes a RoleBinding from the specified namespace
+func DeleteRoleBinding(name, namespace string) {
+	cmd := newKubectlCommand("delete", "rolebinding", name, "-n", namespace, "--ignore-not-found")
+	if _, err := Run(cmd); err != nil {
+		warnError(err)
+	}
+}
+
+// CreateClusterRoleBinding creates a ClusterRoleBinding
+func CreateClusterRoleBinding(name, clusterRole, serviceAccount, namespace string) error {
+	cmd := newKubectlCommand("create", "clusterrolebinding", name,
+		"--clusterrole="+clusterRole,
+		"--serviceaccount="+namespace+":"+serviceAccount)
+	_, err := Run(cmd)
+	return err
+}
+
+// DeleteClusterRoleBinding deletes a ClusterRoleBinding
+func DeleteClusterRoleBinding(name string) {
+	cmd := newKubectlCommand("delete", "clusterrolebinding", name, "--ignore-not-found")
+	if _, err := Run(cmd); err != nil {
+		warnError(err)
+	}
+}
+
+// KubectlAs runs a kubectl command with impersonation as a ServiceAccount
+func KubectlAs(serviceAccount, namespace string, args ...string) *exec.Cmd {
+	asUser := fmt.Sprintf("system:serviceaccount:%s:%s", namespace, serviceAccount)
+	kubectlArgs := []string{"--as=" + asUser}
+	kubectlArgs = append(kubectlArgs, args...)
+	return exec.Command(getKubectl(), kubectlArgs...)
+}
+
+// ApplyYAML applies a YAML string to the cluster
+func ApplyYAML(yaml string) error {
+	cmd := newKubectlCommand("apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(yaml)
+	_, err := Run(cmd)
+	return err
+}
+
+// ApplyYAMLAs applies a YAML string to the cluster with impersonation
+func ApplyYAMLAs(yaml, serviceAccount, namespace string) error {
+	asUser := fmt.Sprintf("system:serviceaccount:%s:%s", namespace, serviceAccount)
+	cmd := exec.Command(getKubectl(), "--as="+asUser, "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(yaml)
+	_, err := Run(cmd)
+	return err
+}
+
+// DeleteYAML deletes resources from a YAML string
+func DeleteYAML(yaml string) {
+	cmd := newKubectlCommand("delete", "-f", "-", "--ignore-not-found")
+	cmd.Stdin = strings.NewReader(yaml)
+	if _, err := Run(cmd); err != nil {
+		warnError(err)
+	}
+}
+
+// PatchResource patches a resource with a JSON patch
+func PatchResource(resourceType, name, namespace, patch string) error {
+	cmd := newKubectlCommand("patch", resourceType, name, "-n", namespace,
+		"--type=json", "-p", patch)
+	_, err := Run(cmd)
+	return err
+}
+
+// PatchResourceAs patches a resource with a JSON patch using impersonation
+func PatchResourceAs(resourceType, name, namespace, patch, serviceAccount, saNamespace string) error {
+	asUser := fmt.Sprintf("system:serviceaccount:%s:%s", saNamespace, serviceAccount)
+	cmd := exec.Command(getKubectl(), "--as="+asUser, "patch", resourceType, name, "-n", namespace,
+		"--type=json", "-p", patch)
+	_, err := Run(cmd)
+	return err
+}
+
+// GetResource gets a resource and returns its YAML
+func GetResource(resourceType, name, namespace string) (string, error) {
+	cmd := newKubectlCommand("get", resourceType, name, "-n", namespace, "-o", "yaml")
+	return Run(cmd)
+}
+
+// WaitForResource waits for a resource to exist
+func WaitForResource(resourceType, name, namespace string, timeout string) error {
+	cmd := newKubectlCommand("wait", "--for=condition=Ready",
+		resourceType+"/"+name, "-n", namespace, "--timeout="+timeout)
+	_, err := Run(cmd)
+	return err
+}
+
+// CreateTestVM creates a basic test VirtualMachine
+func CreateTestVM(name, namespace string) error {
+	vmYAML := fmt.Sprintf(`
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  running: false
+  template:
+    metadata:
+      labels:
+        kubevirt.io/vm: %s
+    spec:
+      domain:
+        devices:
+          disks:
+          - disk:
+              bus: virtio
+            name: containerdisk
+          - disk:
+              bus: virtio
+            name: cloudinitdisk
+        resources:
+          requests:
+            memory: 128Mi
+      volumes:
+      - containerDisk:
+          image: quay.io/containerdisks/fedora:latest
+        name: containerdisk
+      - cloudInitNoCloud:
+          userData: |
+            #cloud-config
+            password: fedora
+            chpasswd: { expire: False }
+        name: cloudinitdisk
+`, name, namespace, name)
+
+	return ApplyYAML(vmYAML)
+}
+
+// DeleteVM deletes a VirtualMachine
+func DeleteVM(name, namespace string) {
+	cmd := newKubectlCommand("delete", "vm", name, "-n", namespace, "--ignore-not-found")
+	if _, err := Run(cmd); err != nil {
+		warnError(err)
+	}
+}
+
+// IsKubeVirtCRDsInstalled checks if KubeVirt CRDs are installed
+func IsKubeVirtCRDsInstalled() bool {
+	cmd := newKubectlCommand("get", "crd", "virtualmachines.kubevirt.io")
+	_, err := Run(cmd)
+	return err == nil
+}
+
+// IsDeploymentAvailable checks if a deployment exists and is available
+func IsDeploymentAvailable(name, namespace string) bool {
+	cmd := newKubectlCommand("get", "deployment", name, "-n", namespace)
+	_, err := Run(cmd)
+	return err == nil
+}
+
+// CreateVMWithCDRom creates a test VM with a CD-ROM drive
+func CreateVMWithCDRom(name, namespace string, hotpluggable bool) error {
+	hotplugStr := ""
+	if hotpluggable {
+		hotplugStr = "true"
+	} else {
+		hotplugStr = "false"
+	}
+
+	vmYAML := fmt.Sprintf(`
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  running: false
+  template:
+    metadata:
+      labels:
+        kubevirt.io/vm: %s
+    spec:
+      domain:
+        devices:
+          disks:
+          - disk:
+              bus: virtio
+            name: containerdisk
+          - cdrom:
+              bus: sata
+            name: cdrom-0
+        resources:
+          requests:
+            memory: 128Mi
+      volumes:
+      - containerDisk:
+          image: quay.io/containerdisks/fedora:latest
+        name: containerdisk
+      - dataVolume:
+          name: blank-cdrom
+          hotpluggable: %s
+        name: cdrom-0
+`, name, namespace, name, hotplugStr)
+
+	return ApplyYAML(vmYAML)
 }

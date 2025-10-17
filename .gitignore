@@ -5,7 +5,7 @@
 *.so
 *.dylib
 bin/*
-Dockerfile.cross
+!bin/README.md
 
 # Test binary, built with `go test -c`
 *.test
@@ -15,9 +15,11 @@ Dockerfile.cross
 
 # Go workspace file
 go.work
+go.work.sum
 
-# Kubernetes Generated files - skip generated files, except for vendored files
-!vendor/**/zz_generated.*
+# Kubernetes Generated files - skip generated code for plugins
+config/crd/bases/*.yaml
+config/webhook/manifests.yaml
 
 # editor and IDE paraphernalia
 .idea
@@ -25,3 +27,16 @@ go.work
 *.swp
 *.swo
 *~
+
+# Coverage files
+cover.out
+coverage*.out
+coverage.html
+
+# kubevirtci
+_kubevirtci/
+_ci-configs/
+
+# Build artifacts
+dist/
+Dockerfile.cross

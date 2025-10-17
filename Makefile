@@ -43,7 +43,7 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration and ClusterRole objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role webhook paths="./..." output:rbac:dir=config/rbac output:webhook:dir=config/webhook
+	$(CONTROLLER_GEN) rbac:roleName=kubevirt-rbac-webhook-manager webhook paths="./cmd/...;./internal/..." output:rbac:dir=config/rbac output:webhook:dir=config/webhook
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -160,6 +160,28 @@ deploy: manifests kustomize ## Deploy webhook to the K8s cluster specified in ~/
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy webhook from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+##@ Kubevirtci Development
+
+.PHONY: cluster-up
+cluster-up: ## Start kubevirtci cluster with KubeVirt pre-installed
+	./hack/cluster-up.sh
+
+.PHONY: cluster-down
+cluster-down: ## Stop kubevirtci cluster
+	./hack/cluster-down.sh
+
+.PHONY: cluster-sync
+cluster-sync: ## Build, push image to cluster registry, and deploy webhook
+	./hack/cluster-sync.sh
+
+.PHONY: cluster-functest
+cluster-functest: ## Run e2e functional tests against kubevirtci cluster
+	./hack/cluster-functest.sh
+
+.PHONY: cluster-clean
+cluster-clean: cluster-down ## Clean kubevirtci cluster and remove cached data
+	rm -rf $(KUBEVIRTCI_ROOT)
 
 ##@ Dependencies
 

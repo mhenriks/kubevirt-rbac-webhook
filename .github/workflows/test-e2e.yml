@@ -6,7 +6,7 @@ on:
 
 jobs:
   test-e2e:
-    name: Run on Ubuntu
+    name: Run on Ubuntu with kubevirtci
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -17,16 +17,32 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install the latest version of kind
+      - name: Install system dependencies
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+          sudo apt-get update
+          sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
 
-      - name: Verify kind installation
-        run: kind version
-
-      - name: Running Test e2e
+      - name: Set up kubevirtci
         run: |
-          go mod tidy
-          make test-e2e
+          make cluster-up
+
+      - name: Build and deploy webhook
+        run: |
+          make cluster-sync
+
+      - name: Run e2e tests
+        run: |
+          make cluster-functest
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          export KUBECONFIG=$(pwd)/_kubevirtci/_ci-configs/k8s-1.30/.kubeconfig
+          kubectl get pods -n kubevirt-rbac-webhook-system
+          kubectl logs -n kubevirt-rbac-webhook-system -l control-plane=controller-manager --tail=100 || true
+          kubectl get events -n kubevirt-rbac-webhook-system --sort-by='.lastTimestamp' || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          make cluster-down || true

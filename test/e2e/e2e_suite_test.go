@@ -31,16 +31,30 @@ import (
 var (
 	// Optional Environment Variables:
 	// - CERT_MANAGER_INSTALL_SKIP=true: Skips CertManager installation during test setup.
-	// These variables are useful if CertManager is already installed, avoiding
-	// re-installation and conflicts.
+	// - USE_KUBEVIRTCI=true: Use kubevirtci cluster (assumes cluster is already running)
+	// These variables are useful if CertManager is already installed or if running
+	// against kubevirtci cluster, avoiding re-installation and conflicts.
 	skipCertManagerInstall = os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true"
+	useKubevirtci          = os.Getenv("USE_KUBEVIRTCI") == "true"
+
 	// isCertManagerAlreadyInstalled will be set true when CertManager CRDs be found on the cluster
 	isCertManagerAlreadyInstalled = false
 
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
-	projectImage = "example.com/kubevirt-rbac-webhook:v0.0.1"
+	// For kubevirtci, this defaults to localhost:5000/kubevirt-rbac-webhook:devel
+	projectImage = getProjectImage()
 )
+
+func getProjectImage() string {
+	if img := os.Getenv("PROJECT_IMAGE"); img != "" {
+		return img
+	}
+	if useKubevirtci {
+		return "localhost:5000/kubevirt-rbac-webhook:devel"
+	}
+	return "example.com/kubevirt-rbac-webhook:v0.0.1"
+}
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
 // temporary environment to validate project changes with the purpose of being used in CI jobs.
@@ -53,36 +67,61 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	By("building the manager(Operator) image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
+	if useKubevirtci {
+		By("running tests against kubevirtci cluster")
+		_, _ = fmt.Fprintf(GinkgoWriter, "Using kubevirtci cluster with image: %s\n", projectImage)
 
-	// TODO(user): If you want to change the e2e test vendor from Kind, ensure the image is
-	// built and available before running the tests. Also, remove the following block.
-	By("loading the manager(Operator) image on Kind")
-	err = utils.LoadImageToKindClusterWithName(projectImage)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+		By("verifying KubeVirt is installed")
+		// Note: utils.IsCertManagerCRDsInstalled() and other utils functions
+		// automatically use kubectl.sh wrapper in kubevirtci mode
+		if !utils.IsKubeVirtCRDsInstalled() {
+			ExpectWithOffset(1, false).To(BeTrue(), "KubeVirt must be installed in kubevirtci cluster")
+		}
 
-	// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
-	// To prevent errors when tests run in environments with CertManager already installed,
-	// we check for its presence before execution.
-	// Setup CertManager before the suite if not skipped and if not already installed
-	if !skipCertManagerInstall {
-		By("checking if cert manager is installed already")
+		By("checking if cert-manager is installed")
 		isCertManagerAlreadyInstalled = utils.IsCertManagerCRDsInstalled()
 		if !isCertManagerAlreadyInstalled {
-			_, _ = fmt.Fprintf(GinkgoWriter, "Installing CertManager...\n")
-			Expect(utils.InstallCertManager()).To(Succeed(), "Failed to install CertManager")
-		} else {
-			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: CertManager is already installed. Skipping installation...\n")
+			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: CertManager not found, deployment may fail...\n")
+		}
+
+		// For kubevirtci, we assume the webhook is already deployed via cluster-sync
+		// Just verify it's running
+		By("verifying webhook is deployed")
+		if !utils.IsDeploymentAvailable("controller-manager", namespace) {
+			_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: Webhook not deployed. Run 'make cluster-sync' first\n")
+		}
+	} else {
+		// Original kind-based workflow
+		By("building the manager(Operator) image")
+		cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", projectImage))
+		_, err := utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager(Operator) image")
+
+		By("loading the manager(Operator) image on Kind")
+		err = utils.LoadImageToKindClusterWithName(projectImage)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager(Operator) image into Kind")
+
+		// The tests-e2e are intended to run on a temporary cluster that is created and destroyed for testing.
+		// To prevent errors when tests run in environments with CertManager already installed,
+		// we check for its presence before execution.
+		// Setup CertManager before the suite if not skipped and if not already installed
+		if !skipCertManagerInstall {
+			By("checking if cert manager is installed already")
+			isCertManagerAlreadyInstalled = utils.IsCertManagerCRDsInstalled()
+			if !isCertManagerAlreadyInstalled {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Installing CertManager...\n")
+				Expect(utils.InstallCertManager()).To(Succeed(), "Failed to install CertManager")
+			} else {
+				_, _ = fmt.Fprintf(GinkgoWriter, "WARNING: CertManager is already installed. Skipping installation...\n")
+			}
 		}
 	}
 })
 
 var _ = AfterSuite(func() {
 	// Teardown CertManager after the suite if not skipped and if it was not already installed
-	if !skipCertManagerInstall && !isCertManagerAlreadyInstalled {
+	// Skip teardown for kubevirtci as the cluster persists
+	if !useKubevirtci && !skipCertManagerInstall && !isCertManagerAlreadyInstalled {
 		_, _ = fmt.Fprintf(GinkgoWriter, "Uninstalling CertManager...\n")
 		utils.UninstallCertManager()
 	}
