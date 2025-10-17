@@ -39,6 +39,10 @@ main() {
         log_info "cert-manager installed successfully"
     fi
 
+    # Undeploy old version (following virt-template pattern for clean reinstall)
+    log_info "Cleaning up previous deployment..."
+    (cd "${PROJECT_ROOT}" && make undeploy || true)
+
     # Deploy the webhook (using in-cluster registry name)
     log_info "Deploying webhook to cluster..."
     (cd "${PROJECT_ROOT}" && make deploy IMG="registry:5000/kubevirt-rbac-webhook:devel")
