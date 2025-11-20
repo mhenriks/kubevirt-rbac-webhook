@@ -20,7 +20,18 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
+          sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils podman
+
+      - name: Prepare environment for kubevirtci
+        run: |
+          # Create audit log directory required by kind-1.34 provider
+          sudo mkdir -p /var/log/audit
+
+          # Fix /dev/kvm permissions if it exists (for hardware acceleration)
+          if [ -e /dev/kvm ]; then
+            echo "Setting /dev/kvm permissions for KubeVirt..."
+            sudo chmod 666 /dev/kvm
+          fi
 
       - name: Set up kubevirtci
         run: |
@@ -37,7 +48,7 @@ jobs:
       - name: Collect logs on failure
         if: failure()
         run: |
-          export KUBECONFIG=$(pwd)/_kubevirtci/_ci-configs/k8s-1.30/.kubeconfig
+          export KUBECONFIG=$(pwd)/_kubevirtci/_ci-configs/kind-1.34/.kubeconfig
           kubectl get pods -n kubevirt-rbac-webhook-system
           kubectl logs -n kubevirt-rbac-webhook-system -l control-plane=controller-manager --tail=100 || true
           kubectl get events -n kubevirt-rbac-webhook-system --sort-by='.lastTimestamp' || true

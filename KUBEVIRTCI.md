@@ -92,7 +92,7 @@ Configuration is managed in `hack/config.sh`:
 - `IMAGE_REGISTRY`: Container registry (default: `localhost:5000`)
 - `IMAGE_NAME`: Image name (default: `kubevirt-rbac-webhook`)
 - `IMAGE_TAG`: Image tag (default: `devel`)
-- `KUBEVIRT_PROVIDER`: Kubernetes version (default: `k8s-1.34`)
+- `KUBEVIRT_PROVIDER`: Kubernetes version (default: `kind-1.34`)
 - `KUBEVIRTCI_VERSION`: kubevirtci version/tag (default: `2510141807-f21813f1`)
 
 ## Manual kubectl Access
@@ -114,7 +114,7 @@ _kubevirtci/cluster-up/kubectl.sh get pods -n kubevirt
 ### Alternative: Use kubectl directly with KUBECONFIG
 
 ```bash
-export KUBECONFIG=$(pwd)/_kubevirtci/_ci-configs/k8s-1.34/.kubeconfig
+export KUBECONFIG=$(pwd)/_kubevirtci/_ci-configs/kind-1.34/.kubeconfig
 kubectl get nodes
 kubectl get vms -A
 ```
@@ -228,4 +228,3 @@ The test suite supports these environment variables:
 
 - [kubevirtci GitHub](https://github.com/kubevirt/kubevirtci)
 - [KubeVirt Documentation](https://kubevirt.io/user-guide/)
-- [virt-template (reference implementation)](https://github.com/kubevirt/virt-template)

@@ -17,7 +17,7 @@ WEBHOOK_NAMESPACE=${WEBHOOK_NAMESPACE:-kubevirt-rbac-webhook-system}
 # KUBEVIRTCI_TAG: Required by kubevirtci's kubectl.sh (set during installation)
 # NOTE: During 'make cluster-up', kubevirtci::install() appends KUBEVIRTCI_TAG
 # to kubevirtci's cluster-up/hack/common.sh so kubectl.sh works directly
-KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.34}
+KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-kind-1.34}
 KUBEVIRTCI_VERSION=${KUBEVIRTCI_VERSION:-2510141807-f21813f1}
 KUBEVIRTCI_TAG=${KUBEVIRTCI_TAG:-$KUBEVIRTCI_VERSION}
 KUBEVIRTCI_ROOT="${KUBEVIRTCI_ROOT:-$(pwd)/_kubevirtci}"
