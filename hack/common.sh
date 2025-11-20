@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 # kubevirtci integration utilities
-# Based on patterns from kubevirt/virt-template
 
 set -e
 
@@ -48,7 +47,7 @@ kubevirtci::up() {
     kubevirtci::install
 
     # Set the provider
-    export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-k8s-1.30}
+    export KUBEVIRT_PROVIDER=${KUBEVIRT_PROVIDER:-kind-1.34}
 
     # Run cluster-up from kubevirtci root directory
     (cd "${KUBEVIRTCI_ROOT}" && make cluster-up)
@@ -69,7 +68,7 @@ kubevirtci::down() {
 }
 
 kubevirtci::kubeconfig() {
-    local provider=${KUBEVIRT_PROVIDER:-k8s-1.34}
+    local provider=${KUBEVIRT_PROVIDER:-kind-1.34}
     echo "${KUBEVIRTCI_ROOT}/_ci-configs/${provider}/.kubeconfig"
 }
 
@@ -82,10 +81,18 @@ kubevirtci::ssh() {
     "${KUBEVIRTCI_ROOT}/cluster-up/ssh.sh" "$@"
 }
 
-# Get the dynamic cluster registry port
+# Get the cluster registry address
 kubevirtci::registry() {
-    local port=$("${KUBEVIRTCI_ROOT}/cluster-up/cli.sh" ports registry)
-    echo "localhost:${port}"
+    local provider=${KUBEVIRT_PROVIDER:-kind-1.34}
+
+    # For kind providers, kubevirtci creates a registry on localhost:5000
+    if [[ "${provider}" == kind-* ]]; then
+        echo "localhost:5000"
+    else
+        # For k8s-* providers, use cli.sh to get dynamic port
+        local port=$("${KUBEVIRTCI_ROOT}/cluster-up/cli.sh" ports registry)
+        echo "localhost:${port}"
+    fi
 }
 
 # Check if cluster is running

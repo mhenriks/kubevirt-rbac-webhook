@@ -11,6 +11,16 @@ This project uses [kubevirtci](https://github.com/kubevirt/kubevirtci) for devel
 
 ## Quick Start
 
+### Prerequisites
+
+- **Docker** (recommended) or Podman for running containers
+  - Docker is preferred for running the cluster (runs as root, better /dev/kvm access)
+  - Podman can be used for building/pushing images
+- Git (for cloning kubevirtci)
+- Make
+
+**Note:** If using both Docker and Podman, the scripts automatically use Docker for cluster operations and Podman for image building. This is optimal for hardware virtualization support.
+
 ### 1. Start kubevirtci Cluster
 
 ```bash
@@ -19,7 +29,7 @@ make cluster-up
 
 This will:
 - Clone kubevirtci (if not already present in `_kubevirtci/`)
-- Start a Kubernetes cluster with KubeVirt pre-installed
+- Start a Kubernetes cluster (kind-1.34) with KubeVirt pre-installed
 - Export KUBECONFIG for the cluster
 
 ### 2. Build and Deploy Webhook
@@ -92,7 +102,7 @@ Configuration is managed in `hack/config.sh`:
 - `IMAGE_REGISTRY`: Container registry (default: `localhost:5000`)
 - `IMAGE_NAME`: Image name (default: `kubevirt-rbac-webhook`)
 - `IMAGE_TAG`: Image tag (default: `devel`)
-- `KUBEVIRT_PROVIDER`: Kubernetes version (default: `k8s-1.34`)
+- `KUBEVIRT_PROVIDER`: Kubernetes version (default: `kind-1.34`)
 - `KUBEVIRTCI_VERSION`: kubevirtci version/tag (default: `2510141807-f21813f1`)
 
 ## Manual kubectl Access
@@ -114,7 +124,7 @@ _kubevirtci/cluster-up/kubectl.sh get pods -n kubevirt
 ### Alternative: Use kubectl directly with KUBECONFIG
 
 ```bash
-export KUBECONFIG=$(pwd)/_kubevirtci/_ci-configs/k8s-1.34/.kubeconfig
+export KUBECONFIG=$(pwd)/_kubevirtci/_ci-configs/kind-1.34/.kubeconfig
 kubectl get nodes
 kubectl get vms -A
 ```
@@ -228,4 +238,3 @@ The test suite supports these environment variables:
 
 - [kubevirtci GitHub](https://github.com/kubevirt/kubevirtci)
 - [KubeVirt Documentation](https://kubevirt.io/user-guide/)
-- [virt-template (reference implementation)](https://github.com/kubevirt/virt-template)

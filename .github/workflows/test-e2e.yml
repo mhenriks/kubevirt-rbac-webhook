@@ -20,11 +20,34 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
+          sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils podman
+
+      - name: Prepare environment for kubevirtci
+        run: |
+          # Create audit log directory required by kind-1.34 provider
+          sudo mkdir -p /var/log/audit
+
+          # Ensure Docker is preferred over podman for kind
+          # Podman runs rootless by default and can't access /dev/kvm properly
+          # Docker runs as root and can access /dev/kvm with default permissions
+          sudo systemctl restart docker
+
+          # Temporarily make podman unavailable for kind by renaming it
+          # (cluster-sync will restore it for building/pushing images)
+          sudo mv /usr/bin/podman /usr/bin/podman.bak || true
+
+          # Verify Docker is working
+          docker version
 
       - name: Set up kubevirtci
         run: |
           make cluster-up
+
+      - name: Restore podman for image building
+        run: |
+          # Restore podman for cluster-sync to use for building/pushing images
+          sudo mv /usr/bin/podman.bak /usr/bin/podman 2>/dev/null || \
+            echo "::warning::Podman not restored (may not have been backed up)"
 
       - name: Build and deploy webhook
         run: |
@@ -37,7 +60,7 @@ jobs:
       - name: Collect logs on failure
         if: failure()
         run: |
-          export KUBECONFIG=$(pwd)/_kubevirtci/_ci-configs/k8s-1.30/.kubeconfig
+          export KUBECONFIG=$(pwd)/_kubevirtci/_ci-configs/kind-1.34/.kubeconfig
           kubectl get pods -n kubevirt-rbac-webhook-system
           kubectl logs -n kubevirt-rbac-webhook-system -l control-plane=controller-manager --tail=100 || true
           kubectl get events -n kubevirt-rbac-webhook-system --sort-by='.lastTimestamp' || true
