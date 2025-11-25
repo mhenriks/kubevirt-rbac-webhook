@@ -6,17 +6,47 @@ This guide helps you quickly deploy and test the KubeVirt RBAC Webhook.
 
 - Kubernetes cluster with KubeVirt installed
 - `kubectl` configured to access the cluster
-- `make` installed
-- Go 1.21+
-- **Docker or Podman** (to build the webhook container image)
-- **Container registry access** (to push your built image)
 - **cert-manager installed** (required for webhook TLS certificates)
 
 ## Installation Steps
 
-### 1. Install cert-manager
+### Option 1: Quick Install (Recommended)
 
-If you don't have cert-manager installed:
+Install the latest stable release with a single command:
+
+```bash
+kubectl apply -f https://github.com/mhenriks/kubevirt-rbac-webhook/releases/latest/download/install.yaml
+```
+
+Or install a specific version:
+
+```bash
+VERSION=v0.1.0
+kubectl apply -f https://github.com/mhenriks/kubevirt-rbac-webhook/releases/download/${VERSION}/install.yaml
+```
+
+### Option 2: Build from Source
+
+For development or customization:
+
+```bash
+# Clone the repository
+git clone https://github.com/mhenriks/kubevirt-rbac-webhook
+cd kubevirt-rbac-webhook
+
+# Build the webhook image
+make docker-build IMG=<your-registry>/kubevirt-rbac-webhook:latest
+
+# Push to your container registry
+make docker-push IMG=<your-registry>/kubevirt-rbac-webhook:latest
+
+# Deploy everything
+make deploy IMG=<your-registry>/kubevirt-rbac-webhook:latest
+```
+
+Replace `<your-registry>` with your container registry (e.g., `docker.io/myuser`, `quay.io/myorg`, `ghcr.io/myuser`).
+
+### 1. Install cert-manager (if not already installed)
 
 ```bash
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
@@ -28,44 +58,19 @@ Wait for cert-manager to be ready:
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=60s
 ```
 
-### 2. Build and Deploy the Webhook
+### 2. Verify Installation
 
-Since there are no pre-built container images, you need to build and push your own:
-
-```bash
-# Build the webhook image
-make docker-build IMG=<your-registry>/kubevirt-rbac-webhook:latest
-
-# Push to your container registry
-make docker-push IMG=<your-registry>/kubevirt-rbac-webhook:latest
-
-# Deploy everything
-make deploy IMG=<your-registry>/kubevirt-rbac-webhook:latest
-```
-
-Replace `<your-registry>` with your container registry, for example:
-- Docker Hub: `docker.io/myuser`
-- Quay.io: `quay.io/myorg`
-- GitHub Container Registry: `ghcr.io/myuser`
-
-This creates:
-- Webhook Deployment and Service (using your built image)
-- ValidatingWebhookConfiguration
-- Fine-grained ClusterRoles with role aggregation
-- Required RBAC (minimal - just SubjectAccessReview permission)
-- Certificate resources for webhook TLS
-
-Verify everything was created:
+After installing the webhook, verify everything was created:
 
 ```bash
+# Check webhook pod
+kubectl get pods -n kubevirt-rbac-webhook-system
+
 # Check ClusterRoles
 kubectl get clusterroles | grep kubevirt.io:vm-
 
 # Check ValidatingWebhookConfiguration
 kubectl get validatingwebhookconfigurations | grep kubevirt-rbac
-
-# Check webhook pod
-kubectl get pods -n kubevirt-rbac-webhook-system
 ```
 
 Expected ClusterRoles:
@@ -78,6 +83,13 @@ kubevirt.io:vm-devices-admin        (device management)
 kubevirt.io:vm-lifecycle-admin      (start/stop/restart)
 kubevirt.io:vm-cdrom-user           (CD-ROM media only)
 ```
+
+The installation includes:
+- ✅ ValidatingWebhookConfiguration
+- ✅ Fine-grained ClusterRoles with role aggregation
+- ✅ Webhook Deployment and Service
+- ✅ Required RBAC (minimal - just SubjectAccessReview permission)
+- ✅ Certificate resources for webhook TLS (via cert-manager)
 
 ### 3. Webhook Certificate Details
 
@@ -352,7 +364,20 @@ kubectl logs -n kubevirt-rbac-webhook-system -l control-plane=controller-manager
 
 ## Cleanup
 
-Remove everything with one command:
+### If installed from GitHub release:
+
+```bash
+kubectl delete -f https://github.com/mhenriks/kubevirt-rbac-webhook/releases/latest/download/install.yaml
+```
+
+Or for a specific version:
+
+```bash
+VERSION=v0.1.0
+kubectl delete -f https://github.com/mhenriks/kubevirt-rbac-webhook/releases/download/${VERSION}/install.yaml
+```
+
+### If installed from source:
 
 ```bash
 make undeploy

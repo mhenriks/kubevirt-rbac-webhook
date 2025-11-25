@@ -94,28 +94,108 @@ The webhook intercepts VirtualMachine update requests and enforces an **opt-in r
 
 ## Getting Started
 
+### Quick Install (Recommended)
+
+Install the latest stable release directly from GitHub:
+
+```bash
+kubectl apply -f https://github.com/mhenriks/kubevirt-rbac-webhook/releases/latest/download/install.yaml
+```
+
+Or install a specific version:
+
+```bash
+VERSION=v0.1.0
+kubectl apply -f https://github.com/mhenriks/kubevirt-rbac-webhook/releases/download/${VERSION}/install.yaml
+```
+
+The installation includes:
+- ✅ ValidatingWebhookConfiguration
+- ✅ Fine-grained ClusterRoles (`kubevirt.io:vm-*-admin`, `kubevirt.io:vm-cdrom-user`)
+- ✅ Webhook deployment with TLS (via cert-manager)
+- ✅ RBAC permissions
+- ✅ Service and networking configuration
+
+**Container Images**: Multi-platform images (linux/amd64, linux/arm64, linux/s390x, linux/ppc64le) available at `ghcr.io/mhenriks/kubevirt-rbac-webhook`
+
 ### Prerequisites
 
 - Kubernetes cluster (v1.28+)
 - KubeVirt installed
 - `kubectl` configured
-- **Docker or Podman** (for building the webhook container image)
-- **Container registry access** (to push your built image)
-- **cert-manager installed** (required for webhook certificates)
+- **cert-manager installed** (required for webhook TLS certificates)
 
-### Installation
+### Installation Steps
 
 1. **Install cert-manager** (if not already installed):
+
 ```bash
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
 ```
 
 Wait for cert-manager to be ready:
+
 ```bash
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=60s
 ```
 
+2. **Install the webhook**:
+
+```bash
+kubectl apply -f https://github.com/mhenriks/kubevirt-rbac-webhook/releases/latest/download/install.yaml
+```
+
+3. **Verify the installation**:
+
+```bash
+# Check webhook pod
+kubectl get pods -n kubevirt-rbac-webhook-system
+
+# Check ClusterRoles
+kubectl get clusterroles | grep kubevirt.io:vm-
+# Should show: vm-full-admin, vm-storage-admin, vm-network-admin, vm-compute-admin,
+#              vm-devices-admin, vm-lifecycle-admin, vm-cdrom-user
+
+# Check webhook configuration
+kubectl get validatingwebhookconfigurations | grep kubevirt-rbac
+```
+
+### Uninstall
+
+To remove the webhook and all its resources:
+
+```bash
+kubectl delete -f https://github.com/mhenriks/kubevirt-rbac-webhook/releases/latest/download/install.yaml
+```
+
+Or if using a specific version:
+
+```bash
+VERSION=v0.1.0
+kubectl delete -f https://github.com/mhenriks/kubevirt-rbac-webhook/releases/download/${VERSION}/install.yaml
+```
+
+### Development Installation (From Source)
+
+For development and testing, you can build and deploy from source:
+
+#### Prerequisites (Development)
+
+- All prerequisites from above
+- **Docker or Podman** (for building the webhook container image)
+- **Container registry access** (to push your built image)
+
+#### Steps
+
+1. **Clone the repository**:
+
+```bash
+git clone https://github.com/mhenriks/kubevirt-rbac-webhook
+cd kubevirt-rbac-webhook
+```
+
 2. **Build and push the webhook container image**:
+
 ```bash
 # Build the image
 make docker-build IMG=<your-registry>/kubevirt-rbac-webhook:latest
@@ -127,43 +207,16 @@ make docker-push IMG=<your-registry>/kubevirt-rbac-webhook:latest
 Replace `<your-registry>` with your container registry (e.g., `docker.io/myuser`, `quay.io/myorg`, `ghcr.io/myuser`).
 
 3. **Deploy the webhook**:
+
 ```bash
 make deploy IMG=<your-registry>/kubevirt-rbac-webhook:latest
 ```
 
-This will create:
-- Webhook Deployment and Service (using your built image)
-- ValidatingWebhookConfiguration (with cert-manager CA injection)
-- Fine-grained ClusterRoles (`kubevirt.io:vm-storage-admin`, etc.)
-- Required RBAC permissions
-
-4. **Verify the installation**:
-```bash
-# Check ClusterRoles were created
-kubectl get clusterroles | grep kubevirt.io:vm-
-# Should show: vm-full-admin, vm-storage-admin, vm-network-admin, vm-compute-admin,
-#              vm-devices-admin, vm-lifecycle-admin, vm-cdrom-user
-
-# Check webhook configuration
-kubectl get validatingwebhookconfigurations | grep kubevirt-rbac
-
-# Check webhook pod
-kubectl get pods -n kubevirt-rbac-webhook-system
-```
-
-### Cleanup
-
-To remove the webhook and all its resources:
+4. **Undeploy** (when done):
 
 ```bash
 make undeploy
 ```
-
-This removes:
-- Webhook Deployment
-- ValidatingWebhookConfiguration
-- All ClusterRoles
-- Service, RBAC, etc.
 
 ### Usage Example
 

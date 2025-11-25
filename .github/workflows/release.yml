@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build and push multi-platform image
+        run: |
+          make docker-buildx IMG=ghcr.io/${{ github.repository_owner }}/kubevirt-rbac-webhook:${{ steps.version.outputs.VERSION }}
+          make docker-buildx IMG=ghcr.io/${{ github.repository_owner }}/kubevirt-rbac-webhook:latest
+
+      - name: Generate install.yaml
+        run: |
+          make build-installer IMG=ghcr.io/${{ github.repository_owner }}/kubevirt-rbac-webhook:${{ steps.version.outputs.VERSION }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/install.yaml
+          body: |
+            ## KubeVirt RBAC Webhook ${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+
+            Install with a single command:
+            ```bash
+            kubectl apply -f https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/install.yaml
+            ```
+
+            Or install the latest version:
+            ```bash
+            kubectl apply -f https://github.com/${{ github.repository }}/releases/latest/download/install.yaml
+            ```
+
+            ### Prerequisites
+
+            - Kubernetes cluster (v1.28+)
+            - KubeVirt installed
+            - cert-manager installed (for webhook TLS certificates)
+
+            ### What's Included
+
+            - ✅ ValidatingWebhookConfiguration
+            - ✅ Fine-grained ClusterRoles for VM management
+            - ✅ Webhook deployment with TLS
+            - ✅ RBAC permissions
+            - ✅ Service and networking configuration
+
+            ### Quick Start
+
+            1. **Install cert-manager** (if not already installed):
+            ```bash
+            kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+            kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=60s
+            ```
+
+            2. **Install the webhook**:
+            ```bash
+            kubectl apply -f https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/install.yaml
+            ```
+
+            3. **Verify the installation**:
+            ```bash
+            # Check webhook pod
+            kubectl get pods -n kubevirt-rbac-webhook-system
+
+            # Check ClusterRoles
+            kubectl get clusterroles | grep kubevirt.io:vm-
+
+            # Check webhook configuration
+            kubectl get validatingwebhookconfigurations | grep kubevirt-rbac
+            ```
+
+            ### Uninstall
+
+            ```bash
+            kubectl delete -f https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/install.yaml
+            ```
+
+            ### Documentation
+
+            - [README](https://github.com/${{ github.repository }}/blob/${{ steps.version.outputs.VERSION }}/README.md)
+            - [Quick Start](https://github.com/${{ github.repository }}/blob/${{ steps.version.outputs.VERSION }}/QUICKSTART.md)
+
+            ### Container Image
+
+            Multi-platform image (linux/amd64, linux/arm64, linux/s390x, linux/ppc64le):
+            ```
+            ghcr.io/${{ github.repository_owner }}/kubevirt-rbac-webhook:${{ steps.version.outputs.VERSION }}
+            ```
+          draft: false
+          prerelease: false

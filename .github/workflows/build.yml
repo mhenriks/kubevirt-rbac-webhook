@@ -1,0 +1,97 @@
+name: Build Container Image
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build Multi-Platform Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/kubevirt-rbac-webhook
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+
+      - name: Build multi-platform image (PR)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push multi-platform image (main)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test build-installer target
+        run: |
+          make build-installer IMG=ghcr.io/${{ github.repository_owner }}/kubevirt-rbac-webhook:test
+
+      - name: Validate install.yaml
+        run: |
+          # Check that install.yaml was generated
+          test -f dist/install.yaml
+
+          # Check that it contains expected resources
+          grep -q "kind: Namespace" dist/install.yaml
+          grep -q "kind: ClusterRole" dist/install.yaml
+          grep -q "kind: ValidatingWebhookConfiguration" dist/install.yaml
+          grep -q "kind: Deployment" dist/install.yaml
+          grep -q "kubevirt.io:vm-full-admin" dist/install.yaml
+          grep -q "kubevirt.io:vm-storage-admin" dist/install.yaml
+
+          echo "✅ install.yaml validation passed"
+
+      - name: Upload install.yaml artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-yaml-${{ github.sha }}
+          path: dist/install.yaml
+          retention-days: 30
